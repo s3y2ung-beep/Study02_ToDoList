@@ -230,6 +230,12 @@ function calcProgress(todos) {
   return result;
 }
 
+// 저장 결과에 따른 다음 경고. 저장이 다시 성공하면 "저장할 수 없음" 경고는 거둔다.
+function nextWarning(current, saved) {
+  if (!saved) return "unavailable";
+  return current === "unavailable" ? null : current;
+}
+
 function parseStored(raw) {
   if (raw === null || raw === undefined) return { todos: [], status: "empty", skipped: 0 };
   let data;
@@ -283,7 +289,7 @@ const state = {
 // ===== 상태 변경 =====
 function commit(todos) {
   state.todos = todos;
-  if (!saveTodos(storage, todos)) state.warning = "unavailable";
+  state.warning = nextWarning(state.warning, saveTodos(storage, todos));
   render();
 }
 
@@ -397,7 +403,8 @@ function captureFocus() {
   const li = active.closest("#list li[data-id]");
   if (li) {
     const selector = active.dataset.action ? '[data-action="' + active.dataset.action + '"]' : "." + active.classList[0];
-    return { id: li.dataset.id, selector };
+    const selection = active.type === "text" ? [active.selectionStart, active.selectionEnd] : null;
+    return { id: li.dataset.id, selector, selection };
   }
   const tab = active.closest("#tabs [data-filter]");
   if (tab) return { filter: tab.dataset.filter };
@@ -417,6 +424,7 @@ function restoreFocus(key) {
     target = $("clear-done");
   }
   (target || $("new-title")).focus();
+  if (target && key.selection && target.type === "text") target.setSelectionRange(...key.selection);
 }
 
 function render() {
@@ -562,13 +570,13 @@ $("list").addEventListener("input", e => {
 });
 
 $("list").addEventListener("keydown", e => {
-  if (!e.target.classList.contains("edit-title")) return;
-  if (e.key === "Enter" && !e.isComposing) {
-    e.preventDefault();
-    saveEdit();
-  } else if (e.key === "Escape") {
+  if (!e.target.closest("li.editing")) return;
+  if (e.key === "Escape") {
     e.preventDefault();
     cancelEdit();
+  } else if (e.key === "Enter" && !e.isComposing && e.target.classList.contains("edit-title")) {
+    e.preventDefault();
+    saveEdit();
   }
 });
 
@@ -701,6 +709,14 @@ test("calcProgress mixed", () => {
     personal: { done: 0, total: 0, percent: 0 },
     study:    { done: 0, total: 1, percent: 0 }
   });
+});
+
+test("nextWarning clears unavailable after a successful save", () => {
+  assertEqual(nextWarning("unavailable", true), null);
+  assertEqual(nextWarning(null, true), null);
+  assertEqual(nextWarning("corrupt", true), "corrupt");
+  assertEqual(nextWarning(null, false), "unavailable");
+  assertEqual(nextWarning("corrupt", false), "unavailable");
 });
 
 test("parseStored empty", () => {
