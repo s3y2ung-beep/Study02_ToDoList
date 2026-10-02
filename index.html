@@ -171,8 +171,10 @@ function loadTodos(storage, now = Date.now()) {
   }
   const parsed = parseStored(raw);
   if (parsed.status === "corrupt") {
+    // 백업에 성공했을 때만 원래 키를 비운다. 그래야 새로고침마다 백업이 쌓이지 않고, 백업 실패 시 원본도 지켜진다.
     try {
       storage.setItem(STORAGE_KEY + ".backup-" + now, raw);
+      saveTodos(storage, []);
     } catch {
       // 백업 실패는 무시한다
     }
@@ -761,6 +763,21 @@ test("loadTodos corrupt backs up", () => {
   const fake = makeFakeStorage({ "todo-app.v1": "x" });
   assertEqual(loadTodos(fake, 5).warning, "corrupt");
   assertEqual(fake.data["todo-app.v1.backup-5"], "x");
+});
+
+test("loadTodos corrupt resets main key after backup", () => {
+  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  loadTodos(fake, 5);
+  assertEqual(JSON.parse(fake.data["todo-app.v1"]), { version: 1, todos: [] });
+  assertEqual(loadTodos(fake, 6), { todos: [], warning: null });
+  assertEqual(Object.keys(fake.data).filter(k => k.startsWith("todo-app.v1.backup-")), ["todo-app.v1.backup-5"]);
+});
+
+test("loadTodos corrupt keeps original when backup fails", () => {
+  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  fake.setItem = () => { throw new Error("quota"); };
+  assertEqual(loadTodos(fake, 5).warning, "corrupt");
+  assertEqual(fake.data["todo-app.v1"], "x");
 });
 
 test("loadTodos ok", () => {
