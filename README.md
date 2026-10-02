@@ -31,3 +31,4 @@
 ## 문서
 
 - [PRD.md](PRD.md) — 제품 요구사항 및 설계 문서
+- [PROMPTS.md](PROMPTS.md) — PRD를 Claude Code로 구현하기 위한 5단계 프롬프트
