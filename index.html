@@ -21,6 +21,7 @@ body {
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
   line-height: 1.5;
+  word-break: keep-all;
 }
 .app {
   max-width: 600px;
@@ -30,6 +31,10 @@ body {
 h1 { margin: 0 0 16px; font-size: 1.6rem; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 #banner {
   margin-bottom: 16px;
@@ -55,14 +60,14 @@ button { cursor: pointer; }
 .cat-progress { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; font-size: .9rem; }
 .cat.empty { opacity: .5; }
 
-#add-form { display: flex; gap: 8px; }
-#new-title { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+#add-form { display: flex; flex-wrap: wrap; gap: 8px; }
+#new-title { flex: 1 1 160px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 #new-category { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
 #add-form button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
 #add-error { margin: 6px 0 0; color: var(--danger); font-size: .9rem; }
 
-#tabs { display: flex; gap: 6px; margin: 16px 0 8px; }
-.tab { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); }
+#tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 8px; }
+.tab { white-space: nowrap; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); }
 .tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 #list { list-style: none; margin: 0; padding: 0; }
@@ -76,14 +81,14 @@ button { cursor: pointer; }
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.item .title { flex: 1; }
+.item .title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .item.done .title { text-decoration: line-through; color: var(--muted); }
 .item.done { opacity: .7; }
 .badge { padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .8rem; white-space: nowrap; }
 .icon { border: 0; background: none; padding: 4px; border-radius: 6px; }
 .icon:hover { background: var(--bg); }
 .item.editing { flex-wrap: wrap; }
-.edit-title { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; }
+.edit-title { flex: 1 1 140px; min-width: 0; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; }
 .edit-category { padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
 .item .save, .item .cancel { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); }
 .item .save { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -105,7 +110,7 @@ button { cursor: pointer; }
 <body>
 <main class="app">
   <h1>할 일</h1>
-  <div id="banner" hidden></div>
+  <div id="banner" role="alert" hidden></div>
 
   <section id="progress"></section>
 
@@ -370,18 +375,56 @@ function el(tag, props = {}, children = []) {
   return node;
 }
 
-function bar(percent, color, extraClass = "") {
-  return el("div", { class: ("bar " + extraClass).trim() }, [
+function bar(percent, label, color, extraClass = "") {
+  return el("div", {
+    class: ("bar " + extraClass).trim(),
+    role: "progressbar",
+    "aria-label": label,
+    "aria-valuemin": "0",
+    "aria-valuemax": "100",
+    "aria-valuenow": String(percent)
+  }, [
     el("div", { class: "fill", style: { width: percent + "%", background: color || "" } })
   ]);
 }
 
+// 다시 그리면 요소가 새로 만들어지므로, 키보드 포커스가 있던 자리를 기억했다가 되돌린다.
+function captureFocus() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return null;
+  const li = active.closest("#list li[data-id]");
+  if (li) {
+    const selector = active.dataset.action ? '[data-action="' + active.dataset.action + '"]' : "." + active.classList[0];
+    return { id: li.dataset.id, selector };
+  }
+  const tab = active.closest("#tabs [data-filter]");
+  if (tab) return { filter: tab.dataset.filter };
+  if (active.id === "clear-done") return { clearDone: true };
+  return null;
+}
+
+function restoreFocus(key) {
+  if (!key || (document.activeElement && document.activeElement !== document.body)) return;
+  let target = null;
+  if (key.id) {
+    const li = [...$("list").querySelectorAll("li[data-id]")].find(l => l.dataset.id === key.id);
+    target = li && (li.querySelector(key.selector) || li.querySelector('[data-action="edit"]'));
+  } else if (key.filter) {
+    target = $("tabs").querySelector('[data-filter="' + key.filter + '"]');
+  } else if (key.clearDone && !$("clear-done").hidden) {
+    target = $("clear-done");
+  }
+  (target || $("new-title")).focus();
+}
+
 function render() {
+  const focusKey = captureFocus();
   renderBanner();
   renderProgress();
   renderTabs();
   renderList();
   renderClearDone();
+  restoreFocus(focusKey);
 }
 
 function renderBanner() {
@@ -402,13 +445,13 @@ function renderProgress() {
       el("span", { class: "progress-label", text: "전체 진행률" }),
       el("span", { class: "progress-count", text: p.all.done + " / " + p.all.total + " (" + p.all.percent + "%)" })
     ]),
-    bar(p.all.percent)
+    bar(p.all.percent, "전체 진행률")
   ];
   if (p.all.total === 0) children.push(el("p", { class: "hint", text: "할 일을 추가해 보세요" }));
   children.push(el("div", { class: "cat-progress" }, Object.entries(CATEGORIES).map(([key, cat]) =>
     el("div", { class: "cat" + (p[key].total === 0 ? " empty" : "") }, [
       el("span", { text: cat.label + " " + p[key].done + "/" + p[key].total }),
-      bar(p[key].percent, cat.color, "small")
+      bar(p[key].percent, cat.label + " 진행률", cat.color, "small")
     ])
   )));
   $("progress").replaceChildren(...children);
