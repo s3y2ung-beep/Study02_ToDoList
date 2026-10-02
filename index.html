@@ -5,6 +5,95 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>할 일</title>
 <style>
+:root {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #4f46e5;
+  --danger: #dc2626;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  line-height: 1.5;
+}
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+h1 { margin: 0 0 16px; font-size: 1.6rem; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+
+#banner {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: var(--danger);
+  border: 1px solid #fecaca;
+}
+
+#progress {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.progress-head { display: flex; justify-content: space-between; margin-bottom: 6px; font-weight: 600; }
+.bar { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); transition: width .2s; }
+.bar.small { height: 6px; margin-top: 2px; }
+.hint { margin: 8px 0 0; color: var(--muted); font-size: .9rem; }
+.cat-progress { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; font-size: .9rem; }
+.cat.empty { opacity: .5; }
+
+#add-form { display: flex; gap: 8px; }
+#new-title { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+#new-category { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+#add-form button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
+#add-error { margin: 6px 0 0; color: var(--danger); font-size: .9rem; }
+
+#tabs { display: flex; gap: 6px; margin: 16px 0 8px; }
+.tab { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); }
+.tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+#list { list-style: none; margin: 0; padding: 0; }
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.item .title { flex: 1; }
+.item.done .title { text-decoration: line-through; color: var(--muted); }
+.item.done { opacity: .7; }
+.badge { padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .8rem; white-space: nowrap; }
+.icon { border: 0; background: none; padding: 4px; border-radius: 6px; }
+.icon:hover { background: var(--bg); }
+.empty { padding: 24px; text-align: center; color: var(--muted); }
+
+#clear-done {
+  display: block;
+  margin: 12px 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+}
+#clear-done[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -179,12 +268,70 @@ const state = {
 };
 
 // ===== 상태 변경 =====
+function commit(todos) {
+  state.todos = todos;
+  if (!saveTodos(storage, todos)) state.warning = "unavailable";
+  render();
+}
+
+function addTodo(rawTitle, category) {
+  const v = validateTitle(rawTitle);
+  if (!v.ok || !isCategory(category)) return false;
+  commit(state.todos.concat(createTodo(v.title, category)));
+  return true;
+}
+
+function toggleTodo(id) {
+  commit(state.todos.map(t => (t.id === id ? { ...t, done: !t.done } : t)));
+}
+
+function deleteTodo(id) {
+  commit(state.todos.filter(t => t.id !== id));
+}
+
+function clearDone() {
+  const n = state.todos.filter(t => t.done).length;
+  if (n === 0) return;
+  if (!confirm("완료한 할 일 " + n + "개를 삭제할까요?")) return;
+  commit(state.todos.filter(t => !t.done));
+}
+
+function setFilter(filter) {
+  if (!FILTERS.includes(filter)) return;
+  state.filter = filter;
+  $("new-category").value = filter === "all" ? state.lastCategory : filter;
+  render();
+}
 
 // ===== 렌더링 =====
 const $ = id => document.getElementById(id);
 
+function el(tag, props = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "text") node.textContent = value;
+    else if (key === "class") node.className = value;
+    else if (key === "style") Object.assign(node.style, value);
+    else if (key === "dataset") Object.assign(node.dataset, value);
+    else if (key in node && typeof value !== "string") node[key] = value;
+    else node.setAttribute(key, value);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function bar(percent, color, extraClass = "") {
+  return el("div", { class: ("bar " + extraClass).trim() }, [
+    el("div", { class: "fill", style: { width: percent + "%", background: color || "" } })
+  ]);
+}
+
 function render() {
   renderBanner();
+  renderProgress();
+  renderTabs();
+  renderList();
+  renderClearDone();
 }
 
 function renderBanner() {
@@ -198,7 +345,111 @@ function renderBanner() {
   }
 }
 
+function renderProgress() {
+  const p = calcProgress(state.todos);
+  const children = [
+    el("div", { class: "progress-head" }, [
+      el("span", { class: "progress-label", text: "전체 진행률" }),
+      el("span", { class: "progress-count", text: p.all.done + " / " + p.all.total + " (" + p.all.percent + "%)" })
+    ]),
+    bar(p.all.percent)
+  ];
+  if (p.all.total === 0) children.push(el("p", { class: "hint", text: "할 일을 추가해 보세요" }));
+  children.push(el("div", { class: "cat-progress" }, Object.entries(CATEGORIES).map(([key, cat]) =>
+    el("div", { class: "cat" + (p[key].total === 0 ? " empty" : "") }, [
+      el("span", { text: cat.label + " " + p[key].done + "/" + p[key].total }),
+      bar(p[key].percent, cat.color, "small")
+    ])
+  )));
+  $("progress").replaceChildren(...children);
+}
+
+function renderTabs() {
+  $("tabs").replaceChildren(...FILTERS.map(key => {
+    const label = key === "all" ? "전체" : CATEGORIES[key].label;
+    const count = filterTodos(state.todos, key).length;
+    return el("button", {
+      type: "button",
+      class: "tab",
+      dataset: { filter: key },
+      "aria-pressed": String(state.filter === key),
+      text: label + " " + count
+    });
+  }));
+}
+
+function renderItem(todo) {
+  const cat = CATEGORIES[todo.category];
+  return el("li", { class: todo.done ? "item done" : "item", dataset: { id: todo.id } }, [
+    el("input", { type: "checkbox", checked: todo.done, dataset: { action: "toggle" }, "aria-label": todo.title + " 완료" }),
+    el("span", { class: "title", text: todo.title }),
+    el("span", { class: "badge", style: { background: cat.color }, text: cat.label }),
+    el("button", { type: "button", class: "icon", dataset: { action: "edit" }, "aria-label": todo.title + " 수정", text: "✎" }),
+    el("button", { type: "button", class: "icon", dataset: { action: "delete" }, "aria-label": todo.title + " 삭제", text: "🗑" })
+  ]);
+}
+
+function renderList() {
+  const visible = filterTodos(sortTodos(state.todos), state.filter);
+  if (visible.length === 0) {
+    const message = state.todos.length === 0 ? "할 일이 없습니다" : "이 카테고리에 할 일이 없습니다";
+    $("list").replaceChildren(el("li", { class: "empty", text: message }));
+    return;
+  }
+  $("list").replaceChildren(...visible.map(renderItem));
+}
+
+function renderClearDone() {
+  const n = state.todos.filter(t => t.done).length;
+  const button = $("clear-done");
+  button.hidden = n === 0;
+  button.textContent = "완료 항목 정리 (" + n + ")";
+}
+
 // ===== 이벤트 =====
+$("add-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const input = $("new-title");
+  if (addTodo(input.value, $("new-category").value)) {
+    input.value = "";
+    $("add-error").hidden = true;
+    input.focus();
+  } else {
+    $("add-error").hidden = false;
+  }
+});
+
+$("new-title").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.isComposing) e.preventDefault();
+});
+
+$("new-title").addEventListener("input", () => {
+  $("add-error").hidden = true;
+});
+
+$("new-category").addEventListener("change", e => {
+  state.lastCategory = e.target.value;
+});
+
+$("tabs").addEventListener("click", e => {
+  const button = e.target.closest("button[data-filter]");
+  if (button) setFilter(button.dataset.filter);
+});
+
+$("list").addEventListener("change", e => {
+  if (e.target.dataset.action !== "toggle") return;
+  toggleTodo(e.target.closest("li[data-id]").dataset.id);
+});
+
+$("list").addEventListener("click", e => {
+  const button = e.target.closest("button[data-action]");
+  if (!button) return;
+  const id = button.closest("li[data-id]").dataset.id;
+  if (button.dataset.action === "delete") deleteTodo(id);
+});
+
+$("clear-done").addEventListener("click", clearDone);
+
 window.addEventListener("storage", e => {
   if (e.key !== STORAGE_KEY) return;
   state.todos = parseStored(e.newValue).todos;
