@@ -46,6 +46,51 @@ const CATEGORIES = {
 const FILTERS = ["all", "work", "personal", "study"];
 
 // ===== 저장소 =====
+const WARNINGS = {
+  unavailable: "데이터를 저장할 수 없습니다. 새로고침하면 사라집니다.",
+  corrupt: "저장된 데이터를 읽지 못해 백업 후 초기화했습니다."
+};
+
+function getStorage() {
+  try {
+    const s = window.localStorage;
+    s.getItem(STORAGE_KEY);
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function loadTodos(storage, now = Date.now()) {
+  if (!storage) return { todos: [], warning: "unavailable" };
+  let raw;
+  try {
+    raw = storage.getItem(STORAGE_KEY);
+  } catch {
+    return { todos: [], warning: "unavailable" };
+  }
+  const parsed = parseStored(raw);
+  if (parsed.status === "corrupt") {
+    try {
+      storage.setItem(STORAGE_KEY + ".backup-" + now, raw);
+    } catch {
+      // 백업 실패는 무시한다
+    }
+    return { todos: [], warning: "corrupt" };
+  }
+  if (parsed.skipped > 0) console.warn("[todo] 잘못된 항목 " + parsed.skipped + "개를 건너뛰었습니다.");
+  return { todos: parsed.todos, warning: null };
+}
+
+function saveTodos(storage, todos) {
+  if (!storage) return false;
+  try {
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, todos }));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ===== 순수 로직 =====
 function isCategory(value) {
@@ -121,12 +166,49 @@ function parseStored(raw) {
 }
 
 // ===== 상태 =====
+const storage = getStorage();
+
+const state = {
+  todos: [],
+  filter: "all",
+  editingId: null,
+  editDraft: null,
+  editError: false,
+  lastCategory: "work",
+  warning: null
+};
 
 // ===== 상태 변경 =====
 
 // ===== 렌더링 =====
+const $ = id => document.getElementById(id);
+
+function render() {
+  renderBanner();
+}
+
+function renderBanner() {
+  const banner = $("banner");
+  if (state.warning) {
+    banner.textContent = WARNINGS[state.warning];
+    banner.hidden = false;
+  } else {
+    banner.textContent = "";
+    banner.hidden = true;
+  }
+}
 
 // ===== 이벤트 =====
+window.addEventListener("storage", e => {
+  if (e.key !== STORAGE_KEY) return;
+  state.todos = parseStored(e.newValue).todos;
+  if (state.editingId && !state.todos.some(t => t.id === state.editingId)) {
+    state.editingId = null;
+    state.editDraft = null;
+    state.editError = false;
+  }
+  render();
+});
 
 // ===== 자체 테스트 =====
 const selfTests = [];
@@ -264,7 +346,58 @@ test("parseStored normalizes title", () => {
   assertEqual(parseStored(raw).todos[0].title, "운동");
 });
 
+function makeFakeStorage(initial = {}) {
+  const data = Object.assign({}, initial);
+  return {
+    data,
+    getItem: key => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
+    setItem: (key, value) => { data[key] = String(value); }
+  };
+}
+
+const throwingStorage = {
+  getItem() { throw new Error("storage unavailable"); },
+  setItem() { throw new Error("storage unavailable"); }
+};
+
+test("loadTodos unavailable", () => {
+  assertEqual(loadTodos(null), { todos: [], warning: "unavailable" });
+});
+
+test("loadTodos empty", () => {
+  assertEqual(loadTodos(makeFakeStorage()), { todos: [], warning: null });
+});
+
+test("loadTodos corrupt backs up", () => {
+  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  assertEqual(loadTodos(fake, 5).warning, "corrupt");
+  assertEqual(fake.data["todo-app.v1.backup-5"], "x");
+});
+
+test("loadTodos ok", () => {
+  const fake = makeFakeStorage({ "todo-app.v1": JSON.stringify({ version: 1, todos: [makeTodo()] }) });
+  const r = loadTodos(fake);
+  assertEqual([r.todos.length, r.warning], [1, null]);
+});
+
+test("saveTodos writes", () => {
+  const fake = makeFakeStorage();
+  const todo = makeTodo();
+  assertEqual(saveTodos(fake, [todo]), true);
+  assertEqual(JSON.parse(fake.data["todo-app.v1"]), { version: 1, todos: [todo] });
+});
+
+test("saveTodos failures", () => {
+  assertEqual(saveTodos(throwingStorage, []), false);
+  assertEqual(saveTodos(null, []), false);
+});
+
 // ===== 초기화 =====
+const loaded = loadTodos(storage);
+state.todos = loaded.todos;
+state.warning = loaded.warning;
+render();
+
 if (location.hash === "#test") runSelfTests();
 </script>
 </body>
