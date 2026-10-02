@@ -136,7 +136,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 "use strict";
 
 // ===== 상수 =====
-const STORAGE_KEY = "todo-app.v1";
+const STORAGE_KEY = "todoApp.v1";
+const LEGACY_STORAGE_KEY = "todo-app.v1"; // 이전 버전의 키, 불러올 때 새 키로 옮긴다
 const MAX_TITLE = 100;
 const CATEGORIES = {
   work:     { label: "업무", color: "#3b82f6" },
@@ -161,11 +162,25 @@ function getStorage() {
   }
 }
 
+// 이전 키에 데이터가 있으면 새 키로 옮기고 원본 문자열을 돌려준다. 없으면 null.
+function migrateLegacy(storage) {
+  const legacy = storage.getItem(LEGACY_STORAGE_KEY);
+  if (legacy === null) return null;
+  try {
+    storage.setItem(STORAGE_KEY, legacy);
+    storage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // 옮기지 못해도 이번에는 이전 키의 값으로 불러온다
+  }
+  return legacy;
+}
+
 function loadTodos(storage, now = Date.now()) {
   if (!storage) return { todos: [], warning: "unavailable" };
   let raw;
   try {
     raw = storage.getItem(STORAGE_KEY);
+    if (raw === null) raw = migrateLegacy(storage);
   } catch {
     return { todos: [], warning: "unavailable" };
   }
@@ -758,7 +773,8 @@ function makeFakeStorage(initial = {}) {
   return {
     data,
     getItem: key => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
-    setItem: (key, value) => { data[key] = String(value); }
+    setItem: (key, value) => { data[key] = String(value); },
+    removeItem: key => { delete data[key]; }
   };
 }
 
@@ -776,28 +792,49 @@ test("loadTodos empty", () => {
 });
 
 test("loadTodos corrupt backs up", () => {
-  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  const fake = makeFakeStorage({ "todoApp.v1": "x" });
   assertEqual(loadTodos(fake, 5).warning, "corrupt");
-  assertEqual(fake.data["todo-app.v1.backup-5"], "x");
+  assertEqual(fake.data["todoApp.v1.backup-5"], "x");
 });
 
 test("loadTodos corrupt resets main key after backup", () => {
-  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  const fake = makeFakeStorage({ "todoApp.v1": "x" });
   loadTodos(fake, 5);
-  assertEqual(JSON.parse(fake.data["todo-app.v1"]), { version: 1, todos: [] });
+  assertEqual(JSON.parse(fake.data["todoApp.v1"]), { version: 1, todos: [] });
   assertEqual(loadTodos(fake, 6), { todos: [], warning: null });
-  assertEqual(Object.keys(fake.data).filter(k => k.startsWith("todo-app.v1.backup-")), ["todo-app.v1.backup-5"]);
+  assertEqual(Object.keys(fake.data).filter(k => k.startsWith("todoApp.v1.backup-")), ["todoApp.v1.backup-5"]);
 });
 
 test("loadTodos corrupt keeps original when backup fails", () => {
-  const fake = makeFakeStorage({ "todo-app.v1": "x" });
+  const fake = makeFakeStorage({ "todoApp.v1": "x" });
   fake.setItem = () => { throw new Error("quota"); };
   assertEqual(loadTodos(fake, 5).warning, "corrupt");
-  assertEqual(fake.data["todo-app.v1"], "x");
+  assertEqual(fake.data["todoApp.v1"], "x");
+});
+
+test("storage key matches the lecture", () => {
+  assertEqual(STORAGE_KEY, "todoApp.v1");
+});
+
+test("loadTodos migrates legacy key", () => {
+  const legacy = JSON.stringify({ version: 1, todos: [makeTodo()] });
+  const fake = makeFakeStorage({ "todo-app.v1": legacy });
+  const r = loadTodos(fake);
+  assertEqual([r.todos.length, r.warning], [1, null]);
+  assertEqual(fake.data["todoApp.v1"], legacy);
+  assertEqual(fake.data["todo-app.v1"], undefined);
+});
+
+test("loadTodos prefers new key over legacy", () => {
+  const fake = makeFakeStorage({
+    "todoApp.v1": JSON.stringify({ version: 1, todos: [makeTodo({ id: "new" })] }),
+    "todo-app.v1": JSON.stringify({ version: 1, todos: [makeTodo({ id: "old" })] })
+  });
+  assertEqual(loadTodos(fake).todos.map(t => t.id), ["new"]);
 });
 
 test("loadTodos ok", () => {
-  const fake = makeFakeStorage({ "todo-app.v1": JSON.stringify({ version: 1, todos: [makeTodo()] }) });
+  const fake = makeFakeStorage({ "todoApp.v1": JSON.stringify({ version: 1, todos: [makeTodo()] }) });
   const r = loadTodos(fake);
   assertEqual([r.todos.length, r.warning], [1, null]);
 });
@@ -806,7 +843,7 @@ test("saveTodos writes", () => {
   const fake = makeFakeStorage();
   const todo = makeTodo();
   assertEqual(saveTodos(fake, [todo]), true);
-  assertEqual(JSON.parse(fake.data["todo-app.v1"]), { version: 1, todos: [todo] });
+  assertEqual(JSON.parse(fake.data["todoApp.v1"]), { version: 1, todos: [todo] });
 });
 
 test("saveTodos failures", () => {
