@@ -7,6 +7,7 @@
 - 단계마다 아래 코드 블록 하나를 그대로 복사해 Claude Code에 붙여넣습니다.
 - **한 단계가 끝나고 결과를 확인한 뒤** 다음 단계로 넘어갑니다.
 - 각 프롬프트는 새 세션에서 시작해도 동작하도록, 필요한 맥락을 `PRD.md`와 `CLAUDE.md`에서 읽게 되어 있습니다.
+- 5단계를 한 번에 맡기려면 "PROMPTS.md의 1~5단계를 순서대로 진행해줘. 단계마다 커밋하고, 중간에 승인을 기다리지 마."라고 요청합니다.
 - 1단계에서 `CLAUDE.md`에 공통 규칙을 적어 두므로, 2~5단계는 그 규칙을 따릅니다.
 
 | 단계 | 내용 | PRD 범위 |
@@ -37,7 +38,7 @@ index.html 단일 파일의 뼈대를 만들고, 화면과 무관한 핵심 로�
    - 모든 상태 변경은 "state 수정 → (todos가 바뀌면) 저장 → render()" 순서. DOM에서 데이터를 읽지 않음.
    - 화면 문구는 PRD.md에 적힌 문자열을 그대로 사용.
    - 테스트 실행: 브라우저에서 index.html#test를 열고 콘솔의 "[self-test]" 줄을 확인.
-3. index.html 뼈대를 만들어. 영역 주석, 상수(STORAGE_KEY="todo-app.v1", MAX_TITLE=100, CATEGORIES는 PRD 4.3 그대로),
+3. index.html 뼈대를 만들어. 영역 주석, 상수(STORAGE_KEY="todoApp.v1", MAX_TITLE=100, CATEGORIES는 PRD 4.3 그대로),
    그리고 화면 영역 요소: #banner, #progress, #add-form(#new-title, #new-category, 추가 버튼), #add-error, #tabs, #list, #clear-done.
 4. 자체 테스트 도구를 먼저 만들어: test(name, fn), assertEqual(actual, expected), runSelfTests().
    URL 해시가 #test일 때만 실행하고, 실패는 "[self-test] FAIL 이름: 내용", 마지막 줄은 "[self-test] N passed, M failed"로 콘솔에 출력.
@@ -77,7 +78,8 @@ localStorage 저장·불러오기를 만들고, 저장이 안 되거나 데이�
    - getStorage() → localStorage를 쓸 수 있으면 그 객체, 접근 시 예외가 나면 null
    - loadTodos(storage, now) → {todos, warning: null | "unavailable" | "corrupt"}
      · storage가 null → "unavailable"
-     · 데이터가 깨졌으면 원본 문자열을 "todo-app.v1.backup-<now>" 키에 백업하고 "corrupt"
+     · 데이터가 깨졌으면 원본 문자열을 "todoApp.v1.backup-<now>" 키에 백업하고 "corrupt"
+     · 백업에 성공했을 때만 todoApp.v1을 빈 목록으로 초기화 (새로고침마다 백업이 쌓이지 않게)
      · 건너뛴 항목이 있으면 console.warn으로 개수 기록
    - saveTodos(storage, todos) → 성공 true / storage가 null이거나 저장 중 예외면 false
      저장 형식: {"version":1,"todos":[...]}
@@ -88,7 +90,7 @@ localStorage 저장·불러오기를 만들고, 저장이 안 되거나 데이�
    - unavailable: "데이터를 저장할 수 없습니다. 새로고침하면 사라집니다."
    - corrupt: "저장된 데이터를 읽지 못해 백업 후 초기화했습니다."
 4. 초기화: 저장소 준비 → loadTodos → state 반영 → render().
-5. 다른 탭에서 데이터가 바뀌면(window의 storage 이벤트, 키가 todo-app.v1일 때) 최신 목록으로 다시 그려.
+5. 다른 탭에서 데이터가 바뀌면(window의 storage 이벤트, 키가 todoApp.v1일 때) 최신 목록으로 다시 그려.
    편집 중이던 항목이 사라졌으면 편집 상태도 해제해.
 
 ## 하지 말 것
@@ -96,7 +98,7 @@ localStorage 저장·불러오기를 만들고, 저장이 안 되거나 데이�
 
 ## 완료 조건
 - index.html#test 전부 통과.
-- 콘솔에서 localStorage.setItem("todo-app.v1", "x") 후 새로고침하면 corrupt 배너가 보이고, backup 키가 생김. 확인 후 테스트용 키는 지워.
+- 콘솔에서 localStorage.setItem("todoApp.v1", "x") 후 새로고침하면 corrupt 배너가 보이고, backup 키가 생김. 확인 후 테스트용 키는 지워.
 
 ## 마지막에
 - 커밋하고, 테스트 결과와 배너 확인 결과를 보고해줘.
@@ -157,7 +159,7 @@ PRD.md와 CLAUDE.md를 읽고, 할 일 관리 앱의 4단계를 진행해줘. (1
 2. 편집 진입: ✎ 버튼 클릭 또는 제목 더블클릭.
    편집 줄 구성: [제목 입력칸(maxlength 100)] [카테고리 선택] [저장] [취소], 진입 시 제목 입력칸에 포커스 + 전체 선택.
 3. 저장: Enter 또는 [저장]. 제목이 공백뿐이면 편집을 유지하고 "할 일을 입력하세요" 표시.
-   취소: Esc 또는 [취소]. 포커스가 빠져나가도(blur) 자동 저장하지 않음.
+   취소: 편집 줄(제목 입력칸·카테고리 선택) 어디서든 Esc, 또는 [취소]. 포커스가 빠져나가도(blur) 자동 저장하지 않음.
    한글 조합 중 Enter(e.isComposing)는 무시.
 4. 한 번에 한 항목만 편집. 편집 중 다른 항목의 ✎를 누르면 기존 편집은 취소하고 새 항목을 편집.
 5. 편집 중 입력값은 state.editDraft에 계속 저장해서, 다른 항목을 체크하는 등 화면이 다시 그려져도 입력 내용과 편집 상태가 유지되게 해.
@@ -188,9 +190,11 @@ PRD.md와 CLAUDE.md를 읽고, 할 일 관리 앱의 마지막 5단계를 진행
 1. 반응형: 너비 360px에서 가로 스크롤이 없어야 함. 입력 줄·편집 줄은 줄바꿈 허용, 긴 제목은 줄바꿈.
 2. 접근성: 버튼·체크박스·탭에 :focus-visible 외곽선, 진행률 막대에 role="progressbar"와 aria-valuenow/min/max,
    경고 배너에 role="alert". 키보드(Tab, Enter, Space, Esc)만으로 모든 기능 사용 가능.
+   화면을 다시 그린 뒤에도 키보드 포커스가 있던 자리(편집 칸은 커서 위치까지)로 돌아가게 해.
+   포커스가 있던 항목이 삭제되면 입력칸으로 옮겨.
 3. 전체 검증:
    - index.html#test 전부 통과.
-   - PRD 9.2 인수 테스트 1~14번 전부 실행. 13번은 너비 360px에서 확인.
+   - PRD 9.2 인수 테스트 1~15번 전부 실행. 13번은 너비 360px에서 확인.
    - 할 일 100개를 넣고 체크·삭제·탭 전환이 느려지지 않는지 확인 후 테스트 데이터 삭제.
    - 같은 파일을 탭 두 개로 열고, 한쪽에서 추가한 항목이 다른 탭에도 나타나는지 확인.
 4. 실패한 항목이 있으면 고친 뒤 해당 테스트를 다시 실행해서 통과를 확인해.
@@ -205,3 +209,26 @@ PRD.md와 CLAUDE.md를 읽고, 할 일 관리 앱의 마지막 5단계를 진행
 - 한글 입력(IME) 확인처럼 사람이 직접 봐야 하는 항목은 따로 목록으로 알려줘.
 - GitHub에 push할지는 나에게 먼저 물어봐.
 ```
+
+---
+
+## 실행 기록
+
+이 문서의 5단계는 아래 커밋과 1:1로 대응합니다. `git show <커밋>`으로 단계별 변경 내용을 볼 수 있습니다.
+
+| 단계 | 커밋 | 비고 |
+|---|---|---|
+| 1 | `d43fd6d` 앱 뼈대, 순수 로직, 자체 테스트 | CLAUDE.md는 이때 만들지 않고 단계 완료 후에 추가함 (아래 이후 수정) |
+| 2 | `8edb639` 저장소, 상태, 경고 배너 | |
+| 3 | `c469add` 목록·진행률·필터, 추가·체크·삭제·정리 | |
+| 4 | `6799805` 인라인 편집 | |
+| 5 | `d638765` 반응형·접근성, README 갱신 | 키보드 포커스 복원을 이 단계에서 추가 |
+
+이후 수정 (PRD 11장 변경 이력과 같음):
+
+- `e222efa` 깨진 데이터 백업 후 원래 키 초기화
+- `2a14bf3` 저장 경고 해제, 편집 커서 위치 유지, 카테고리 선택 Esc 취소
+- `933530e` 저장 키를 `todoApp.v1`로 변경, 이전 키 데이터 자동 이전
+- 이 문서·PRD 정리와 CLAUDE.md 추가 (현재 커밋)
+
+위 프롬프트 본문은 이후 수정까지 반영한 최신 내용입니다. 처음부터 다시 만들면 이후 수정 없이 같은 결과가 나옵니다.
