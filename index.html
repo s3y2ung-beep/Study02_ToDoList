@@ -82,6 +82,12 @@ button { cursor: pointer; }
 .badge { padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .8rem; white-space: nowrap; }
 .icon { border: 0; background: none; padding: 4px; border-radius: 6px; }
 .icon:hover { background: var(--bg); }
+.item.editing { flex-wrap: wrap; }
+.edit-title { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 6px; }
+.edit-category { padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+.item .save, .item .cancel { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); }
+.item .save { background: var(--accent); border-color: var(--accent); color: #fff; }
+.edit-error { flex-basis: 100%; margin: 0; color: var(--danger); font-size: .9rem; }
 .empty { padding: 24px; text-align: center; color: var(--muted); }
 
 #clear-done {
@@ -286,7 +292,51 @@ function toggleTodo(id) {
 }
 
 function deleteTodo(id) {
+  if (id === state.editingId) clearEditState();
   commit(state.todos.filter(t => t.id !== id));
+}
+
+function clearEditState() {
+  state.editingId = null;
+  state.editDraft = null;
+  state.editError = false;
+}
+
+function focusEditTitle() {
+  const input = $("list").querySelector("li.editing .edit-title");
+  if (!input) return;
+  input.focus();
+  input.select();
+}
+
+function startEdit(id) {
+  const todo = state.todos.find(t => t.id === id);
+  if (!todo) return;
+  state.editingId = id;
+  state.editDraft = { title: todo.title, category: todo.category };
+  state.editError = false;
+  render();
+  focusEditTitle();
+}
+
+function cancelEdit() {
+  clearEditState();
+  render();
+}
+
+function saveEdit() {
+  const v = validateTitle(state.editDraft.title);
+  if (!v.ok) {
+    state.editError = true;
+    render();
+    $("list").querySelector("li.editing .edit-title")?.focus();
+    return false;
+  }
+  const { editingId } = state;
+  const { category } = state.editDraft;
+  clearEditState();
+  commit(state.todos.map(t => (t.id === editingId ? { ...t, title: v.title, category } : t)));
+  return true;
 }
 
 function clearDone() {
@@ -378,7 +428,24 @@ function renderTabs() {
   }));
 }
 
+function renderEditItem(todo) {
+  const select = el("select", { class: "edit-category", "aria-label": "카테고리 수정" },
+    Object.entries(CATEGORIES).map(([key, cat]) => el("option", { value: key, text: cat.label })));
+  select.value = state.editDraft.category;
+  const input = el("input", { type: "text", class: "edit-title", maxlength: "100", "aria-label": "할 일 제목 수정" });
+  input.value = state.editDraft.title;
+  const children = [
+    input,
+    select,
+    el("button", { type: "button", class: "save", dataset: { action: "save" }, text: "저장" }),
+    el("button", { type: "button", class: "cancel", dataset: { action: "cancel" }, text: "취소" })
+  ];
+  if (state.editError) children.push(el("p", { class: "edit-error", text: "할 일을 입력하세요" }));
+  return el("li", { class: "item editing", dataset: { id: todo.id } }, children);
+}
+
 function renderItem(todo) {
+  if (todo.id === state.editingId) return renderEditItem(todo);
   const cat = CATEGORIES[todo.category];
   return el("li", { class: todo.done ? "item done" : "item", dataset: { id: todo.id } }, [
     el("input", { type: "checkbox", checked: todo.done, dataset: { action: "toggle" }, "aria-label": todo.title + " 완료" }),
@@ -437,15 +504,43 @@ $("tabs").addEventListener("click", e => {
 });
 
 $("list").addEventListener("change", e => {
+  if (e.target.classList.contains("edit-category")) {
+    state.editDraft.category = e.target.value;
+    return;
+  }
   if (e.target.dataset.action !== "toggle") return;
   toggleTodo(e.target.closest("li[data-id]").dataset.id);
+});
+
+$("list").addEventListener("input", e => {
+  if (e.target.classList.contains("edit-title")) state.editDraft.title = e.target.value;
+});
+
+$("list").addEventListener("keydown", e => {
+  if (!e.target.classList.contains("edit-title")) return;
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    saveEdit();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    cancelEdit();
+  }
 });
 
 $("list").addEventListener("click", e => {
   const button = e.target.closest("button[data-action]");
   if (!button) return;
   const id = button.closest("li[data-id]").dataset.id;
-  if (button.dataset.action === "delete") deleteTodo(id);
+  const action = button.dataset.action;
+  if (action === "delete") deleteTodo(id);
+  else if (action === "edit") startEdit(id);
+  else if (action === "save") saveEdit();
+  else if (action === "cancel") cancelEdit();
+});
+
+$("list").addEventListener("dblclick", e => {
+  if (!e.target.classList.contains("title")) return;
+  startEdit(e.target.closest("li[data-id]").dataset.id);
 });
 
 $("clear-done").addEventListener("click", clearDone);
