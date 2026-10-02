@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>할 일</title>
+<style>
+</style>
+</head>
+<body>
+<main class="app">
+  <h1>할 일</h1>
+  <div id="banner" hidden></div>
+
+  <section id="progress"></section>
+
+  <form id="add-form" autocomplete="off">
+    <input id="new-title" type="text" maxlength="100" placeholder="할 일을 입력하세요" aria-label="새 할 일">
+    <select id="new-category" aria-label="카테고리">
+      <option value="work">업무</option>
+      <option value="personal">개인</option>
+      <option value="study">공부</option>
+    </select>
+    <button type="submit">추가</button>
+  </form>
+  <p id="add-error" hidden>할 일을 입력하세요</p>
+
+  <nav id="tabs" aria-label="카테고리 필터"></nav>
+
+  <ul id="list"></ul>
+
+  <button id="clear-done" type="button" hidden></button>
+</main>
+
+<script>
+"use strict";
+
+// ===== 상수 =====
+const STORAGE_KEY = "todo-app.v1";
+const MAX_TITLE = 100;
+const CATEGORIES = {
+  work:     { label: "업무", color: "#3b82f6" },
+  personal: { label: "개인", color: "#10b981" },
+  study:    { label: "공부", color: "#f59e0b" }
+};
+const FILTERS = ["all", "work", "personal", "study"];
+
+// ===== 저장소 =====
+
+// ===== 순수 로직 =====
+function isCategory(value) {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(CATEGORIES, value);
+}
+
+function validateTitle(raw) {
+  if (typeof raw !== "string") return { ok: false };
+  const title = raw.trim();
+  if (title.length === 0 || title.length > MAX_TITLE) return { ok: false };
+  return { ok: true, title };
+}
+
+function createTodo(title, category, now = Date.now()) {
+  const id = now.toString(36) + Math.random().toString(36).slice(2, 8);
+  return { id, title, category, done: false, createdAt: now };
+}
+
+function sortTodos(todos) {
+  return todos.slice().sort((a, b) => (a.done - b.done) || (a.createdAt - b.createdAt));
+}
+
+function filterTodos(todos, filter) {
+  return filter === "all" ? todos.slice() : todos.filter(t => t.category === filter);
+}
+
+function calcProgress(todos) {
+  const result = {};
+  for (const key of FILTERS) {
+    const group = filterTodos(todos, key);
+    const done = group.filter(t => t.done).length;
+    const total = group.length;
+    result[key] = { done, total, percent: total ? Math.round(done / total * 100) : 0 };
+  }
+  return result;
+}
+
+function parseStored(raw) {
+  if (raw === null || raw === undefined) return { todos: [], status: "empty", skipped: 0 };
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { todos: [], status: "corrupt", skipped: 0 };
+  }
+  if (!data || typeof data !== "object" || data.version !== 1 || !Array.isArray(data.todos)) {
+    return { todos: [], status: "corrupt", skipped: 0 };
+  }
+  const todos = [];
+  const seen = new Set();
+  let skipped = 0;
+  for (const item of data.todos) {
+    const valid = item && typeof item === "object"
+      && typeof item.id === "string" && item.id.length > 0 && !seen.has(item.id)
+      && validateTitle(item.title).ok
+      && isCategory(item.category)
+      && typeof item.done === "boolean"
+      && Number.isFinite(item.createdAt);
+    if (!valid) {
+      skipped++;
+      continue;
+    }
+    seen.add(item.id);
+    todos.push({
+      id: item.id,
+      title: validateTitle(item.title).title,
+      category: item.category,
+      done: item.done,
+      createdAt: item.createdAt
+    });
+  }
+  return { todos, status: "ok", skipped };
+}
+
+// ===== 상태 =====
+
+// ===== 상태 변경 =====
+
+// ===== 렌더링 =====
+
+// ===== 이벤트 =====
+
+// ===== 자체 테스트 =====
+const selfTests = [];
+
+function test(name, fn) {
+  selfTests.push({ name, fn });
+}
+
+function assertEqual(actual, expected) {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  if (a !== e) throw new Error("expected " + e + ", got " + a);
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message || "assertion failed");
+}
+
+function runSelfTests() {
+  let passed = 0;
+  let failed = 0;
+  for (const { name, fn } of selfTests) {
+    try {
+      fn();
+      passed++;
+    } catch (err) {
+      failed++;
+      console.error("[self-test] FAIL " + name + ": " + err.message);
+    }
+  }
+  console.log("[self-test] " + passed + " passed, " + failed + " failed");
+}
+
+function makeTodo(overrides) {
+  return Object.assign({ id: "a", title: "할 일", category: "work", done: false, createdAt: 1 }, overrides);
+}
+
+test("validateTitle trims", () => {
+  assertEqual(validateTitle("  보고서  "), { ok: true, title: "보고서" });
+});
+
+test("validateTitle rejects blank", () => {
+  assertEqual(validateTitle(""), { ok: false });
+  assertEqual(validateTitle("   "), { ok: false });
+  assertEqual(validateTitle(null), { ok: false });
+  assertEqual(validateTitle(123), { ok: false });
+});
+
+test("validateTitle length bounds", () => {
+  assertEqual(validateTitle("a").ok, true);
+  assertEqual(validateTitle("가".repeat(100)).ok, true);
+  assertEqual(validateTitle("가".repeat(101)), { ok: false });
+});
+
+test("createTodo shape", () => {
+  const t = createTodo("보고서", "work", 1000);
+  assert(typeof t.id === "string" && t.id.length > 0, "id must be a non-empty string");
+  const { id, ...rest } = t;
+  assertEqual(rest, { title: "보고서", category: "work", done: false, createdAt: 1000 });
+  assert(createTodo("보고서", "work", 1000).id !== t.id, "ids must differ");
+});
+
+test("sortTodos order", () => {
+  const input = [
+    makeTodo({ id: "a", done: true, createdAt: 1 }),
+    makeTodo({ id: "b", done: false, createdAt: 3 }),
+    makeTodo({ id: "c", done: false, createdAt: 2 })
+  ];
+  assertEqual(sortTodos(input).map(t => t.id), ["c", "b", "a"]);
+  assertEqual(input.map(t => t.id), ["a", "b", "c"]);
+});
+
+test("filterTodos", () => {
+  const list = [
+    makeTodo({ id: "a", category: "work" }),
+    makeTodo({ id: "b", category: "work" }),
+    makeTodo({ id: "c", category: "study" })
+  ];
+  assertEqual(filterTodos(list, "all").length, 3);
+  assertEqual(filterTodos(list, "work").length, 2);
+  assertEqual(filterTodos(list, "personal").length, 0);
+});
+
+test("calcProgress empty", () => {
+  const zero = { done: 0, total: 0, percent: 0 };
+  assertEqual(calcProgress([]), { all: zero, work: zero, personal: zero, study: zero });
+});
+
+test("calcProgress mixed", () => {
+  const list = [
+    makeTodo({ id: "a", category: "work", done: true }),
+    makeTodo({ id: "b", category: "work", done: true }),
+    makeTodo({ id: "c", category: "work", done: false }),
+    makeTodo({ id: "d", category: "study", done: false })
+  ];
+  assertEqual(calcProgress(list), {
+    all:      { done: 2, total: 4, percent: 50 },
+    work:     { done: 2, total: 3, percent: 67 },
+    personal: { done: 0, total: 0, percent: 0 },
+    study:    { done: 0, total: 1, percent: 0 }
+  });
+});
+
+test("parseStored empty", () => {
+  assertEqual(parseStored(null), { todos: [], status: "empty", skipped: 0 });
+});
+
+test("parseStored corrupt", () => {
+  for (const raw of ["not json{", '{"version":2,"todos":[]}', '{"version":1,"todos":"x"}', "[]"]) {
+    const r = parseStored(raw);
+    assertEqual([r.status, r.todos], ["corrupt", []]);
+  }
+});
+
+test("parseStored skips invalid", () => {
+  const raw = JSON.stringify({
+    version: 1,
+    todos: [
+      makeTodo({ id: "a" }),
+      makeTodo({ id: "b" }),
+      makeTodo({ id: "c", category: "etc" }),
+      makeTodo({ id: "d", title: "   " }),
+      makeTodo({ id: "a", title: "중복" }),
+      makeTodo({ id: "e", done: "yes" })
+    ]
+  });
+  const r = parseStored(raw);
+  assertEqual(r.status, "ok");
+  assertEqual(r.todos.map(t => t.id), ["a", "b"]);
+  assertEqual(r.skipped, 4);
+});
+
+test("parseStored normalizes title", () => {
+  const raw = JSON.stringify({ version: 1, todos: [makeTodo({ title: "  운동  " })] });
+  assertEqual(parseStored(raw).todos[0].title, "운동");
+});
+
+// ===== 초기화 =====
+if (location.hash === "#test") runSelfTests();
+</script>
+</body>
+</html>
